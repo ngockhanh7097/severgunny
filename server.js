@@ -21,7 +21,6 @@ io.on('connection', (socket) => {
         socket.playerName = playerName;
 
         if (!rooms[roomId]) {
-            // Sắp xếp level thấp bắn trước, level cao sau
             let sortedPlayers = [];
             if (playerData && playerData.length > 0) {
                 sortedPlayers = [...playerData].sort((a, b) => a.level - b.level);
@@ -31,20 +30,20 @@ io.on('connection', (socket) => {
                 id: roomId,
                 players: sortedPlayers,
                 currentIndex: 0,
+                isLocking: false,
                 wind: (Math.random() * 0.06 - 0.03)
             };
         } else if (playerData && rooms[roomId].players.length === 0) {
             rooms[roomId].players = [...playerData].sort((a, b) => a.level - b.level);
         }
 
-        // Báo cho toàn bộ phòng lượt đầu tiên
         io.to(roomId).emit('turn_changed', {
             nextIndex: rooms[roomId].currentIndex,
             wind: rooms[roomId].wind
         });
     });
 
-    // 2. Đồng bộ di chuyển
+    // 2. Đồng bộ di chuyển 60 FPS
     socket.on('player_move', (moveData) => {
         if (!socket.roomId) return;
         socket.to(socket.roomId).emit('opponent_moved', moveData);
@@ -52,7 +51,9 @@ io.on('connection', (socket) => {
 
     // 3. Lệnh Bắn
     socket.on('player_fire', (fireData) => {
-        if (!socket.roomId) return;
+        let r = rooms[socket.roomId];
+        if (!r || r.isLocking) return;
+        r.isLocking = true; // Khóa phòng ngay khi có lệnh bắn
         io.to(socket.roomId).emit('bullet_fired', fireData);
     });
 
@@ -69,42 +70,10 @@ io.on('connection', (socket) => {
         io.to(socket.roomId).emit('explosion_sync', explodeData);
     });
 
-    // 5. Chuyển lượt (Server là trọng tài tính người kế tiếp)
+    // 5. Yêu cầu chuyển lượt từ Client (Có đệm 1.5s xử lý an toàn)
     socket.on('request_next_turn', () => {
         if (!socket.roomId || !rooms[socket.roomId]) return;
-        let r = rooms[socket.roomId];
-
-        let total = r.players.length;
-        if (total === 0) return;
-
-        let team1Alive = r.players.some(p => p.team === 1 && p.hp > 0);
-        let team2Alive = r.players.some(p => p.team === 2 && p.hp > 0);
-
-        if (!team1Alive || !team2Alive) {
-            let winTeam = team1Alive ? 1 : 2;
-            io.to(socket.roomId).emit('match_finished', { winningTeam: winTeam });
-            return;
-        }
-
-        // Tìm người còn sống tiếp theo
-        let nextIdx = -1;
-        for (let i = 1; i <= total; i++) {
-            let candidate = (r.currentIndex + i) % total;
-            if (r.players[candidate] && r.players[candidate].hp > 0) {
-                nextIdx = candidate;
-                break;
-            }
-        }
-
-        if (nextIdx !== -1) {
-            r.currentIndex = nextIdx;
-            r.wind = (Math.random() * 0.06 - 0.03);
-
-            io.to(socket.roomId).emit('turn_changed', {
-                nextIndex: r.currentIndex,
-                wind: r.wind
-            });
-        }
+        advanceTurnWithBuffer(socket.roomId);
     });
 
     // 6. Rút lui
@@ -115,7 +84,53 @@ io.on('connection', (socket) => {
         if (p) p.hp = 0;
 
         io.to(socket.roomId).emit('player_left', { leaverName: leaverName });
+        advanceTurnWithBuffer(socket.roomId);
     });
+
+    function advanceTurnWithBuffer(roomId) {
+        let r = rooms[roomId];
+        if (!r) return;
+
+        let total = r.players.length;
+        if (total === 0) return;
+
+        let team1Alive = r.players.some(p => p.team === 1 && p.hp > 0);
+        let team2Alive = r.players.some(p => p.team === 2 && p.hp > 0);
+
+        if (!team1Alive || !team2Alive) {
+            let winTeam = team1Alive ? 1 : 2;
+            io.to(roomId).emit('match_finished', { winningTeam: winTeam });
+            return;
+        }
+
+        // Thông báo phòng bước vào giai đoạn đệm chuyển lượt
+        io.to(roomId).emit('turn_buffering');
+
+        setTimeout(() => {
+            if (!rooms[roomId]) return;
+            let currentRoom = rooms[roomId];
+
+            let nextIdx = -1;
+            for (let i = 1; i <= total; i++) {
+                let candidate = (currentRoom.currentIndex + i) % total;
+                if (currentRoom.players[candidate] && currentRoom.players[candidate].hp > 0) {
+                    nextIdx = candidate;
+                    break;
+                }
+            }
+
+            if (nextIdx !== -1) {
+                currentRoom.currentIndex = nextIdx;
+                currentRoom.isLocking = false; // Mở khóa phòng cho người tiếp theo
+                currentRoom.wind = (Math.random() * 0.06 - 0.03);
+
+                io.to(roomId).emit('turn_changed', {
+                    nextIndex: currentRoom.currentIndex,
+                    wind: currentRoom.wind
+                });
+            }
+        }, 1500); // Đệm đúng 1.5 giây
+    }
 
     socket.on('disconnect', () => {
         if (socket.roomId && rooms[socket.roomId] && socket.playerName) {
@@ -129,5 +144,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Server Gunny running on port: ${PORT}`);
+    console.log(`Gunny Server chạy tại port: ${PORT}`);
 });
