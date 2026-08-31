@@ -8,14 +8,17 @@ app.use(cors());
 
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: { origin: "*", methods: ["GET", "POST"] }
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
 });
 
 const rooms = {};
 
 io.on('connection', (socket) => {
-    // 1. Tham gia phòng đấu (Host và Guest dùng chung 1 hàm)
-    socket.on('join_room', ({ roomId, playerName }) => {
+    // 1. Tham gia phòng đấu
+    socket.on('join_room', ({ roomId, playerName, playerData }) => {
         socket.join(roomId);
         socket.roomId = roomId;
         socket.playerName = playerName;
@@ -23,13 +26,22 @@ io.on('connection', (socket) => {
         if (!rooms[roomId]) {
             rooms[roomId] = {
                 id: roomId,
-                currentIndex: 0,
+                players: {},
+                currentTurnIndex: 0,
                 wind: (Math.random() * 0.06 - 0.03)
             };
         }
+
+        rooms[roomId].players[socket.id] = {
+            id: socket.id,
+            name: playerName,
+            ...playerData
+        };
+
+        io.to(roomId).emit('room_state_update', rooms[roomId]);
     });
 
-    // 2. Đồng bộ di chuyển 60 FPS
+    // 2. Đồng bộ di chuyển & góc ngắm thời gian thực (Broadcast ngay lập tức)
     socket.on('player_move', (moveData) => {
         if (!socket.roomId) return;
         socket.to(socket.roomId).emit('opponent_moved', moveData);
@@ -41,7 +53,7 @@ io.on('connection', (socket) => {
         io.to(socket.roomId).emit('bullet_fired', fireData);
     });
 
-    // 4. Đồng bộ Đạn nổ & Trừ máu
+    // 4. Đồng bộ Đạn nổ, Trừ máu & Đào đất
     socket.on('bullet_exploded', (explodeData) => {
         if (!socket.roomId) return;
         io.to(socket.roomId).emit('explosion_sync', explodeData);
@@ -50,7 +62,7 @@ io.on('connection', (socket) => {
     // 5. Chuyển lượt
     socket.on('request_next_turn', ({ nextIndex, nextWind }) => {
         if (!socket.roomId || !rooms[socket.roomId]) return;
-        rooms[socket.roomId].currentIndex = nextIndex;
+        rooms[socket.roomId].currentTurnIndex = nextIndex;
         rooms[socket.roomId].wind = nextWind;
 
         io.to(socket.roomId).emit('turn_changed', {
@@ -67,12 +79,16 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         if (socket.roomId && rooms[socket.roomId]) {
+            delete rooms[socket.roomId].players[socket.id];
             io.to(socket.roomId).emit('player_left', { leaverName: socket.playerName });
+            if (Object.keys(rooms[socket.roomId].players).length === 0) {
+                delete rooms[socket.roomId];
+            }
         }
     });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Gunny Server chạy tại port: ${PORT}`);
+    console.log(`Gunny Socket Server đang chạy tại port: ${PORT}`);
 });
