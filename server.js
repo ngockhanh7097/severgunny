@@ -41,7 +41,7 @@ io.on('connection', (socket) => {
         io.to(roomId).emit('room_state_update', rooms[roomId]);
     });
 
-    // 2. Đồng bộ di chuyển & góc ngắm thời gian thực (Broadcast ngay lập tức)
+    // 2. Đồng bộ di chuyển & góc ngắm thời gian thực
     socket.on('player_move', (moveData) => {
         if (!socket.roomId) return;
         socket.to(socket.roomId).emit('opponent_moved', moveData);
@@ -59,7 +59,7 @@ io.on('connection', (socket) => {
         io.to(socket.roomId).emit('explosion_sync', explodeData);
     });
 
-    // 5. Chuyển lượt
+    // 5. Chuyển lượt đa người chơi
     socket.on('request_next_turn', ({ nextIndex, nextWind }) => {
         if (!socket.roomId || !rooms[socket.roomId]) return;
         rooms[socket.roomId].currentTurnIndex = nextIndex;
