@@ -79,14 +79,15 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         if (socket.roomId && rooms[socket.roomId]) {
-            delete rooms[socket.roomId].players[socket.id];
+            const currentRoom = rooms[socket.roomId];
+            delete currentRoom.players[socket.id];
             
-            // Chỉ thông báo rời trận nếu ván đấu chưa bước vào giai đoạn lật thẻ
-            if (!rooms[socket.roomId].cards) {
+            // Chỉ thông báo rút lui nếu trận đấu đang diễn ra và chưa vào màn lật thẻ
+            if (currentRoom.status === "PLAYING" && !currentRoom.cards) {
                 io.to(socket.roomId).emit('player_left', { leaverName: socket.playerName });
             }
 
-            if (Object.keys(rooms[socket.roomId].players).length === 0) {
+            if (Object.keys(currentRoom.players).length === 0) {
                 delete rooms[socket.roomId];
             }
         }
