@@ -80,7 +80,12 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         if (socket.roomId && rooms[socket.roomId]) {
             delete rooms[socket.roomId].players[socket.id];
-            io.to(socket.roomId).emit('player_left', { leaverName: socket.playerName });
+            
+            // Chỉ thông báo rời trận nếu ván đấu chưa bước vào giai đoạn lật thẻ
+            if (!rooms[socket.roomId].cards) {
+                io.to(socket.roomId).emit('player_left', { leaverName: socket.playerName });
+            }
+
             if (Object.keys(rooms[socket.roomId].players).length === 0) {
                 delete rooms[socket.roomId];
             }
