@@ -86,6 +86,37 @@ io.on('connection', (socket) => {
             }
         }
     });
+    // 7. Tạo danh sách 9 thẻ bài khi trận đấu kết thúc
+    socket.on('match_finished_cards', () => {
+        if (!socket.roomId || !rooms[socket.roomId]) return;
+        if (!rooms[socket.roomId].cards) {
+            // Sinh ngẫu nhiên 9 phần thưởng kiếm khí từ 1 - 50
+            const cards = [];
+            for (let i = 0; i < 9; i++) {
+                cards.push({
+                    id: i,
+                    reward: Math.floor(Math.random() * 50) + 1,
+                    openedBy: null
+                });
+            }
+            rooms[socket.roomId].cards = cards;
+            io.to(socket.roomId).emit('cards_board_ready', { cards });
+        }
+    });
+
+    // 8. Đồng bộ khi có người bấm lật thẻ
+    socket.on('pick_card', ({ cardIndex, playerName }) => {
+        if (!socket.roomId || !rooms[socket.roomId] || !rooms[socket.roomId].cards) return;
+        const card = rooms[socket.roomId].cards[cardIndex];
+        if (card && !card.openedBy) {
+            card.openedBy = playerName;
+            io.to(socket.roomId).emit('card_opened', {
+                cardIndex,
+                playerName,
+                reward: card.reward
+            });
+        }
+    });
 });
 
 const PORT = process.env.PORT || 3000;
