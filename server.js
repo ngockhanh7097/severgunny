@@ -92,24 +92,69 @@ io.on('connection', (socket) => {
             }
         }
     });
-    // 7. Tạo danh sách 9 thẻ bài khi trận đấu kết thúc
-    socket.on('match_finished_cards', () => {
+    // 7. Tạo danh sách thẻ bài khi kết thúc trận (Phân loại PvP 9 thẻ & Phó bản 12 thẻ)
+    socket.on('match_finished_cards', (matchInfo) => {
         if (!socket.roomId || !rooms[socket.roomId]) return;
-        if (!rooms[socket.roomId].cards) {
-            // Sinh ngẫu nhiên 9 phần thưởng kiếm khí từ 1 - 50
+        const currentRoom = rooms[socket.roomId];
+
+        if (!currentRoom.cards) {
+            const mode = (matchInfo && matchInfo.mode) || currentRoom.mode || "pvp";
+            const dungeonId = (matchInfo && matchInfo.dungeonId) || currentRoom.dungeonId || "linh_son_1";
+
+            const isDungeon = (mode === "phoban");
+            const totalCards = isDungeon ? 12 : 9;
             const cards = [];
-            for (let i = 0; i < 9; i++) {
+
+            const ironWeapons = ["kiem_sat", "riu_sat", "dinh_sat"];
+            const bronzeWeapons = ["kiem_dong", "riu_dong", "dinh_dong"];
+
+            for (let i = 0; i < totalCards; i++) {
+                let rewardItem = null;
+
+                if (!isDungeon) {
+                    // PvP: 1 - 50 Kiếm khí
+                    rewardItem = {
+                        type: "kiemkhi",
+                        amount: Math.floor(Math.random() * 50) + 1
+                    };
+                } else if (dungeonId === "linh_son_1") {
+                    // Ải 1: 9% rơi vũ khí Sắt, còn lại rơi 5/10/15/20 Kiếm khí
+                    const roll = Math.random() * 100;
+                    if (roll < 9) {
+                        const randomWp = ironWeapons[Math.floor(Math.random() * ironWeapons.length)];
+                        rewardItem = { type: "weapon", weaponKey: randomWp, amount: 1 };
+                    } else {
+                        const kiemkhiValues = [5, 10, 15, 20];
+                        const amount = kiemkhiValues[Math.floor(Math.random() * kiemkhiValues.length)];
+                        rewardItem = { type: "kiemkhi", amount: amount };
+                    }
+                } else {
+                    // Ải 2: 3% vũ khí Đồng, 15% vũ khí Sắt, còn lại rơi 10/20/30/40 Kiếm khí
+                    const roll = Math.random() * 100;
+                    if (roll < 3) {
+                        const randomWp = bronzeWeapons[Math.floor(Math.random() * bronzeWeapons.length)];
+                        rewardItem = { type: "weapon", weaponKey: randomWp, amount: 1 };
+                    } else if (roll < 18) { // 3% + 15% = 18%
+                        const randomWp = ironWeapons[Math.floor(Math.random() * ironWeapons.length)];
+                        rewardItem = { type: "weapon", weaponKey: randomWp, amount: 1 };
+                    } else {
+                        const kiemkhiValues = [10, 20, 30, 40];
+                        const amount = kiemkhiValues[Math.floor(Math.random() * kiemkhiValues.length)];
+                        rewardItem = { type: "kiemkhi", amount: amount };
+                    }
+                }
+
                 cards.push({
                     id: i,
-                    reward: Math.floor(Math.random() * 50) + 1,
+                    reward: rewardItem,
                     openedBy: null
                 });
             }
-            rooms[socket.roomId].cards = cards;
-            io.to(socket.roomId).emit('cards_board_ready', { cards });
+
+            currentRoom.cards = cards;
+            io.to(socket.roomId).emit('cards_board_ready', { cards, isDungeon });
         }
     });
-
     // 8. Đồng bộ khi có người bấm lật thẻ
     socket.on('pick_card', ({ cardIndex, playerName }) => {
         if (!socket.roomId || !rooms[socket.roomId] || !rooms[socket.roomId].cards) return;
